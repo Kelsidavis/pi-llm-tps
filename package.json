@@ -1,0 +1,12 @@
+{
+  "name": "pi-llm-tps",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./llm-tps.ts"]
+  }
+}

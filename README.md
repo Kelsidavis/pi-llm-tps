@@ -1,82 +1,42 @@
 # pi-llm-tps
 
-Live llama.cpp decode rate in the [pi](https://github.com/earendil-works/pi-coding-agent) status bar.
+Live model throughput in [Pi](https://github.com/earendil-works/pi)'s status bar.
 
-```
-⚡ 15.91 t/s  (avg 14.02, 1066 tok)
-```
+The extension selects a source from Pi's active model:
 
-## Why
+| Model provider | Source | Status |
+| --- | --- | --- |
+| `strata` (or `local` on port 8080) | Strata `/metrics` | Recent request wall average, current decode speed, reading/idle state |
+| Other `local` models | `llama-server` journal | Live rolling decode speed and response average |
 
-When you run pi against a local `llama-server`, there is no feedback on how fast
-it is actually decoding until the response finishes. That matters when you are
-tuning `-ncmoe`, `-ub`, GPU offload or clocks — you want to see the effect while
-it happens, not reconstruct it from logs afterwards.
+For Strata, the wall average covers up to 12 recent server requests, including the active request. It includes prompt reading and decode, but excludes time spent running tools. The current decode speed appears while the server is generating.
 
-`llama-server` already logs a rolling rate about every 3 seconds during
-generation:
+For `llama-server`, the extension follows journald and reads the rolling rate from lines like:
 
-```
+```text
 slot print_timing: id 0 | task 2 | n_gen = 953, tg = 12.20 t/s, tg_3s = 11.98 t/s
 ```
-
-- `tg` — average across the whole response
-- `tg_3s` — rolling 3-second window, the live number
-
-So there is nothing to enable server-side: no `--metrics`, no patching
-llama.cpp. This extension follows journald and mirrors that into pi's footer.
-
-## Requirements
-
-- `llama-server` running under systemd, logging to journald
-- `journalctl` readable by the user running pi
-- `stdbuf` (coreutils) — without it journalctl block-buffers into a pipe and the
-  rate arrives in bursts instead of streaming
 
 ## Install
 
 ```bash
-git clone https://github.com/Kelsidavis/pi-llm-tps
-cp pi-llm-tps/llm-tps.ts ~/.pi/agent/extensions/
+pi install git:github.com/Kelsidavis/pi-llm-tps
 ```
 
-Extensions in `~/.pi/agent/extensions/` are auto-discovered. Restart pi, or
-`/reload` in an existing session.
+Or copy `llm-tps.ts` into `~/.pi/agent/extensions/`. Run `/reload` in an open Pi session after installing or updating it. Remove the copied file before installing the package to avoid loading the extension twice.
 
-## Configure
+## Configure the journal source
 
-Set the unit name to match your setup:
+The journal source needs `journalctl` access and `stdbuf` (coreutils). It follows a systemd user unit named `llama-server.service` by default. Override the unit or scope with environment variables before starting Pi:
 
 ```bash
-export LLM_TPS_UNIT=my-llama.service   # default: llama-server.service
-export LLM_TPS_SCOPE=system            # default: user (systemctl --user)
+export LLM_TPS_UNIT=my-llama.service
+export LLM_TPS_SCOPE=system  # default: user
 ```
 
-For a systemd *user* unit the defaults are usually right apart from the name.
+The Strata source uses the active model's `baseUrl` and requires the server's `/metrics` endpoint. It is selected automatically for the `strata` provider or a `local` model on port 8080.
 
-## Verifying
-
-`⚡ --` means loaded but idle — the server only logs while generating, so this
-is what you see between responses.
-
-If it stays at `⚡ --` during generation, run `/tps`:
-
-```
-llm-tps: follower=running lines=42 last=12.04 t/s unit=llama-server.service scope=--user
-```
-
-- `follower=STOPPED` — the journalctl child died or never started
-- `lines=0` while generating — wrong unit name, or the log format differs from
-  the regex in `llm-tps.ts`
-
-## Notes
-
-- Reports the **server-side** rate. For a local provider that is what pi is
-  receiving; if you point pi at a remote model, the footer will show nothing.
-- Assumes one llama-server. Multiple backends need one unit name per instance.
-- Costs one long-lived `journalctl -f` per pi session, cleaned up on
-  `session_shutdown`.
-- Guarded on `ctx.hasUI`, so it no-ops in print (`-p`) and JSON modes.
+Run `/tps` to see the active source, sample count, and last reported speed. The extension does nothing in Pi modes without a UI.
 
 ## License
 
